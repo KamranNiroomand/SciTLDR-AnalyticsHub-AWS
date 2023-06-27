@@ -5,10 +5,13 @@ from pyspark.context import SparkContext
 from awsglue.context import GlueContext
 from awsglue.job import Job
 
-args = getResolvedOptions(sys.argv, ["JOB_NAME"])
+# Create SparkContext and GlueContext
 sc = SparkContext()
 glueContext = GlueContext(sc)
 spark = glueContext.spark_session
+
+# Get job name from command-line arguments
+args = getResolvedOptions(sys.argv, ["JOB_NAME"])
 job = Job(glueContext)
 job.init(args["JOB_NAME"], args)
 
@@ -17,23 +20,30 @@ S3bucket_node1 = glueContext.create_dynamic_frame.from_catalog(
     database="input", table_name="texttext_json", transformation_ctx="S3bucket_node1"
 )
 
-# Script generated for node Change Schema
-ChangeSchema_node1687108655237 = ApplyMapping.apply(
-    frame=S3bucket_node1,
-    mappings=[
-        ("source", "array", "source", "array"),
-        ("source_labels", "array", "source_labels", "array"),
-        ("rouge_scores", "array", "rouge_scores", "array"),
-        ("paper_id", "string", "paper_id", "string"),
-        ("target", "array", "target", "array"),
-        ("title", "string", "title", "string"),
-    ],
-    transformation_ctx="ChangeSchema_node1687108655237",
+# Data preprocessing
+normalized_data = S3bucket_node1.toDF().select(
+    lower(col("source")).alias("source"),
+    col("source_labels"),
+    col("rouge_scores"),
+    col("paper_id"),
+    col("target"),
+    col("title")
 )
+
+# Feature engineering
+# Example: Adding a feature based on the length of the source text
+normalized_data = normalized_data.withColumn("source_length", length(col("source")))
+
+# Data enrichment
+# Example: Adding a feature based on the count of unique words in the source text
+tokenizer = Tokenizer(inputCol="source", outputCol="tokens")
+tokenized_data = tokenizer.transform(normalized_data)
+word_count = udf(lambda x: len(set(x)), IntegerType())
+enriched_data = tokenized_data.withColumn("unique_word_count", word_count(col("tokens")))
 
 # Script generated for node Amazon S3
 AmazonS3_node1687108745304 = glueContext.write_dynamic_frame.from_options(
-    frame=ChangeSchema_node1687108655237,
+    frame=enriched_data,
     connection_type="s3",
     format="glueparquet",
     connection_options={
@@ -44,4 +54,5 @@ AmazonS3_node1687108745304 = glueContext.write_dynamic_frame.from_options(
     transformation_ctx="AmazonS3_node1687108745304",
 )
 
+# Commit the job
 job.commit()
